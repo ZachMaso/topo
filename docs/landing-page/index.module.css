@@ -162,13 +162,6 @@
   z-index: 1;
 }
 
-.heroDiagram {
-  display: block;
-  height: auto;
-  width: 100%;
-  max-width: 100%;
-}
-
 @media screen and (min-width: 1440px) {
   .hero {
     grid-template-columns: 1fr minmax(620px, 900px);

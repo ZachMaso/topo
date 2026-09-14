@@ -1,0 +1,10 @@
+.diagram {
+  color: var(--arm-ink);
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+:global(html[data-theme="dark"]) .diagram {
+  color: #fff;
+}

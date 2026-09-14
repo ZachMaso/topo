@@ -1,19 +1,17 @@
 import Link from "@docusaurus/Link";
-import useBaseUrl from "@docusaurus/useBaseUrl";
 import Layout from "@theme/Layout";
 import type { ReactElement } from "react";
 
 import { homepageContent } from "./_homepage";
 import ExternalLinkIcon from "./external-link.svg";
 import styles from "./index.module.css";
+import TopoOverviewDiagram from "./TopoOverviewDiagram";
 
 function joinClasses(...parts: Array<string | undefined | false>): string {
   return parts.filter(Boolean).join(" ");
 }
 
 export default function Home(): ReactElement {
-  const heroDiagramUrl = useBaseUrl("/img/topo-overview.svg");
-
   return (
     <Layout
       title={homepageContent.meta.title}
@@ -49,11 +47,7 @@ export default function Home(): ReactElement {
             </div>
           </div>
           <div className={styles.heroVisual}>
-            <img
-              className={styles.heroDiagram}
-              src={heroDiagramUrl}
-              alt="Topo deployment and development loop"
-            />
+            <TopoOverviewDiagram />
           </div>
         </section>
 

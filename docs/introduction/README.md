@@ -2,6 +2,8 @@
 sidebar_position: 0
 ---
 
+import TopoOverviewDiagram from "../landing-page/TopoOverviewDiagram";
+
 # Overview
 
 Topo helps you discover, configure, and deploy containerized software to Arm-based Linux devices over SSH. It uses Compose projects, container images, and standard container tools.
@@ -12,7 +14,7 @@ You run Topo on a [host](glossary.md#host) and deploy to a [target](glossary.md#
 
 This diagram shows where Topo runs, what it deploys, and how you iterate on a project.
 
-![Topo host-to-target deployment and development loop](/img/topo-overview.svg)
+<TopoOverviewDiagram />
 
 ## Use cases
 
