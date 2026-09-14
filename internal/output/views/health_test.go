@@ -2,6 +2,7 @@ package views_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/arm/topo/internal/health"
@@ -53,13 +54,8 @@ func TestHealthReport(t *testing.T) {
 		t.Run("it renders a warning icon for warning checks", func(t *testing.T) {
 			toPrint := views.NewHealthReport(health.HostReport{}, &health.TargetReport{
 				Connectivity: health.HealthCheck{
-					Name:   "Connected",
-					Status: health.CheckStatusOK,
-				},
-				ProcessingDomainDriver: health.HealthCheck{
-					Name:   "Processing Domain Driver (remoteproc)",
+					Name:   "Pineapple on pizza",
 					Status: health.CheckStatusWarning,
-					Value:  "no remoteproc devices found",
 				},
 			}, "")
 			var out bytes.Buffer
@@ -67,19 +63,14 @@ func TestHealthReport(t *testing.T) {
 			err := views.Print(toPrint, &out, term.Plain)
 
 			require.NoError(t, err)
-			assert.Contains(t, out.String(), " ! Processing Domain Driver (remoteproc) (no remoteproc devices found)")
+			assert.Contains(t, out.String(), " ! Pineapple on pizza")
 		})
 
 		t.Run("it renders an info icon for info checks", func(t *testing.T) {
 			toPrint := views.NewHealthReport(health.HostReport{}, &health.TargetReport{
 				Connectivity: health.HealthCheck{
-					Name:   "Connected",
-					Status: health.CheckStatusOK,
-				},
-				ProcessingDomainDriver: health.HealthCheck{
-					Name:   "Processing Domain Driver (remoteproc)",
+					Name:   "Has potatoes",
 					Status: health.CheckStatusInfo,
-					Value:  "no remoteproc devices found",
 				},
 			}, "")
 			var out bytes.Buffer
@@ -87,7 +78,7 @@ func TestHealthReport(t *testing.T) {
 			err := views.Print(toPrint, &out, term.Plain)
 
 			require.NoError(t, err)
-			assert.Contains(t, out.String(), " i Processing Domain Driver (remoteproc) (no remoteproc devices found)")
+			assert.Contains(t, out.String(), " i Has potatoes")
 		})
 
 		t.Run("it renders connection failures", func(t *testing.T) {
@@ -103,6 +94,25 @@ func TestHealthReport(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Contains(t, out.String(), " ✗ Connected")
+		})
+
+		t.Run("it renders the processing domain and target's dependencies", func(t *testing.T) {
+			toPrint := views.NewHealthReport(health.HostReport{}, &health.TargetReport{
+				Connectivity: health.HealthCheck{Status: health.CheckStatusOK},
+				Dependencies: []health.HealthCheck{
+					{ID: health.DependencyIDRemoteproc, Name: "Processing Domain Driver (remoteproc)", Status: health.CheckStatusOK},
+					{Name: "Hardware Info", Status: health.CheckStatusOK},
+				},
+			}, "")
+			var out bytes.Buffer
+
+			err := views.Print(toPrint, &out, term.Plain)
+
+			require.NoError(t, err)
+			assert.Less(t,
+				strings.Index(out.String(), "Hardware Info"),
+				strings.Index(out.String(), "Processing Domain Driver (remoteproc)"),
+			)
 		})
 
 		t.Run("it renders the target destination", func(t *testing.T) {
@@ -199,8 +209,14 @@ func TestHealthReport(t *testing.T) {
 					Name:   "Connected",
 					Status: health.CheckStatusOK,
 				},
-				ProcessingDomainDriver: health.HealthCheck{
-					Status: health.CheckStatusWarning,
+				Dependencies: []health.HealthCheck{
+					{
+						ID:     health.DependencyIDRemoteproc,
+						Name:   "Processing Domain Driver (remoteproc)",
+						Status: health.CheckStatusOK,
+						Value:  "m4_0",
+					},
+					{Name: "Container Engine", Status: health.CheckStatusOK, Value: "docker"},
 				},
 			}, "")
 			var out bytes.Buffer
@@ -218,8 +234,14 @@ func TestHealthReport(t *testing.T) {
 					"destination": "ssh://user@my-target",
 					"isLocalhost": false,
 					"connectivity": {"name":"Connected","status":"ok","value":""},
-					"dependencies": [],
-					"processingDomainDriver": {"name":"","status":"warning","value":""}
+					"dependencies": [
+						{"name":"Container Engine","status":"ok","value":"docker"}
+					],
+					"processingDomainDriver": {
+						"name":"Processing Domain Driver (remoteproc)",
+						"status":"ok",
+						"value":"m4_0"
+					}
 				}
 			}`
 			assert.JSONEq(t, want, out.String())
