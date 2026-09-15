@@ -1,11 +1,11 @@
 import Link from "@docusaurus/Link";
+import TopoOverviewDiagram from "@site/docs/TopoOverviewDiagram";
 import Layout from "@theme/Layout";
 import type { ReactElement } from "react";
 
 import { homepageContent } from "./_homepage";
 import ExternalLinkIcon from "./external-link.svg";
 import styles from "./index.module.css";
-import TopoOverviewDiagram from "./TopoOverviewDiagram";
 
 function joinClasses(...parts: Array<string | undefined | false>): string {
   return parts.filter(Boolean).join(" ");

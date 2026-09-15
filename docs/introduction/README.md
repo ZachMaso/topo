@@ -2,7 +2,7 @@
 sidebar_position: 0
 ---
 
-import TopoOverviewDiagram from "../landing-page/TopoOverviewDiagram";
+import TopoOverviewDiagram from "../TopoOverviewDiagram";
 
 # Overview
 
