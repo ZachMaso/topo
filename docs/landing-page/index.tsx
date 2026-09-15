@@ -1,7 +1,8 @@
 import Link from "@docusaurus/Link";
-import TopoOverviewDiagram from "@site/docs/TopoOverviewDiagram";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 import CodeBlock from "@theme/CodeBlock";
 import Layout from "@theme/Layout";
+import ThemedImage from "@theme/ThemedImage";
 import type { ReactElement } from "react";
 
 import { homepageContent } from "./_homepage";
@@ -13,6 +14,11 @@ function joinClasses(...parts: Array<string | undefined | false>): string {
 }
 
 export default function Home(): ReactElement {
+  const diagramSources = {
+    light: useBaseUrl("/img/topo-overview.svg"),
+    dark: useBaseUrl("/img/topo-overview-dark.svg"),
+  };
+
   return (
     <Layout
       title={homepageContent.meta.title}
@@ -48,7 +54,11 @@ export default function Home(): ReactElement {
             </div>
           </div>
           <div className={styles.heroVisual}>
-            <TopoOverviewDiagram />
+            <ThemedImage
+              className={styles.heroDiagram}
+              alt="Topo deployment and development loop"
+              sources={diagramSources}
+            />
           </div>
         </section>
 

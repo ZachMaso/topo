@@ -5,7 +5,8 @@ title: What is Topo?
 description: Learn where Topo runs, what it deploys, and how to use it with Arm-based Linux devices.
 ---
 
-import TopoOverviewDiagram from "../TopoOverviewDiagram";
+import useBaseUrl from "@docusaurus/useBaseUrl";
+import ThemedImage from "@theme/ThemedImage";
 
 # What is Topo?
 
@@ -17,7 +18,13 @@ You run Topo on a [host](glossary.md#host) and deploy to a [target](glossary.md#
 
 This diagram shows where Topo runs, what it deploys, and how you iterate on a project.
 
-<TopoOverviewDiagram />
+<ThemedImage
+  alt="Topo deployment and development loop"
+  sources={{
+    light: useBaseUrl("/img/topo-overview.svg"),
+    dark: useBaseUrl("/img/topo-overview-dark.svg"),
+  }}
+/>
 
 ## Use cases
 
