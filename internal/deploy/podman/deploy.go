@@ -18,13 +18,13 @@ func Deploy(ctx context.Context, output io.Writer, scope project.Scope, options 
 		return err
 	}
 	progress := term.NewProgress(output)
-	localComposeRunner := buildRunComposeCommandFn(LocalSocket)
+	localEngine := EngineExecutor{LocalSocket}
 
-	if err := deploy.PrepareImages(ctx, progress, scope, localComposeRunner); err != nil {
+	if err := deploy.PrepareImages(ctx, progress, scope, localEngine); err != nil {
 		return err
 	}
 
-	targetSocket := LocalSocket
+	remoteEngine := localEngine
 	var tunnel *ssh.TCPToUnixSocketTunnel
 	if !options.TargetHost.IsPlainLocalhost() {
 		if err := progress.Header("Open Podman socket SSH tunnel"); err != nil {
@@ -42,9 +42,10 @@ func Deploy(ctx context.Context, output io.Writer, scope project.Scope, options 
 			}
 		}()
 
-		targetSocket = NewSocket(tunnel.SocketURL())
+		targetSocket := NewSocket(tunnel.SocketURL())
+		remoteEngine = EngineExecutor{targetSocket}
 		if options.Registry == nil {
-			if err := transferImagesViaPipe(ctx, progress, LocalSocket, targetSocket, scope); err != nil {
+			if err := deploy.TransferImagesViaPipe(ctx, progress, scope, localEngine, remoteEngine); err != nil {
 				return err
 			}
 		} else if err := transferImagesViaRegistry(ctx, progress, LocalSocket, options.TargetHost, targetSocket, scope, *options.Registry); err != nil {
@@ -52,8 +53,7 @@ func Deploy(ctx context.Context, output io.Writer, scope project.Scope, options 
 		}
 	}
 
-	remoteComposeRunner := buildRunComposeCommandFn(targetSocket)
-	if err := deploy.StartServices(ctx, progress, scope, options.RecreateMode, remoteComposeRunner); err != nil {
+	if err := deploy.StartServices(ctx, progress, scope, options.RecreateMode, remoteEngine); err != nil {
 		return err
 	}
 
@@ -71,27 +71,6 @@ func Deploy(ctx context.Context, output io.Writer, scope project.Scope, options 
 		output,
 		scope,
 		options.DefaultSuccessMessage,
-	)
-}
-
-func transferImagesViaPipe(ctx context.Context, progress *term.Progress, sourceSocket, targetSocket Socket, scope project.Scope) error {
-	return deploy.TransferImagesViaPipe(
-		ctx,
-		progress,
-		func(ctx context.Context, output io.Writer, image string, imagePayload io.Writer) error {
-			saveCommand := Command(ctx, sourceSocket, "save", image)
-			saveCommand.Stdout = imagePayload
-			saveCommand.Stderr = output
-			return saveCommand.Run()
-		},
-		func(ctx context.Context, output io.Writer, imagePayload io.Reader) error {
-			loadCommand := Command(ctx, targetSocket, "load")
-			loadCommand.Stdin = imagePayload
-			loadCommand.Stderr = output
-			loadCommand.Stdout = output
-			return loadCommand.Run()
-		},
-		scope,
 	)
 }
 
