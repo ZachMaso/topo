@@ -11,11 +11,163 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arm/topo/internal/deploy/docker"
+	"github.com/arm/topo/internal/deploy/podman"
+	"github.com/arm/topo/internal/deploy/post_deploy"
 	"github.com/arm/topo/internal/output/term"
 	"github.com/arm/topo/internal/project"
 	"github.com/arm/topo/internal/ssh"
 	"golang.org/x/sync/errgroup"
 )
+
+type Engine interface {
+	CommandRunner
+	ComposeCommandRunner
+	RegistryClient
+}
+
+func Deploy(ctx context.Context, output io.Writer, scope project.Scope, options Options) (deployErr error) {
+	engine := options.Engine
+	if engine != EngineDocker && engine != EnginePodman {
+		return fmt.Errorf("invalid engine %q: must be docker or podman", engine)
+	}
+	progress := term.NewProgress(output)
+	var localEngine Engine
+	var clean func() error
+	var portConflictMessages []string
+
+	if engine == EngineDocker {
+		localEngine = docker.Engine{Host: docker.LocalHost}
+		portConflictMessages = docker.ContainerPortConflictMessages
+	} else {
+		if err := podman.EnsureNoRuntimeSet(scope); err != nil {
+			return err
+		}
+		localEngine = podman.Engine{Socket: podman.LocalSocket}
+		portConflictMessages = podman.ContainerPortConflictMessages
+	}
+
+	if err := PrepareImages(ctx, progress, scope, localEngine); err != nil {
+		return err
+	}
+
+	targetEngine := localEngine
+	if !options.TargetHost.IsPlainLocalhost() {
+		if engine == EngineDocker {
+			targetEngine = docker.Engine{Host: docker.NewHostFromDestination(options.TargetHost)}
+		} else {
+			socket, closeTunnel, err := openPodmanSocketTunnel(ctx, progress, options.TargetHost)
+			if err != nil {
+				return err
+			}
+			clean = closeTunnel
+			defer func() {
+				deployErr = errors.Join(deployErr, clean())
+			}()
+			targetEngine = podman.Engine{Socket: socket}
+		}
+
+		if options.Registry == nil {
+			if err := TransferImagesViaPipe(ctx, progress, scope, localEngine, targetEngine); err != nil {
+				return err
+			}
+		} else {
+			registryConfig := options.Registry.WithDefaults()
+			if err := PrepareRegistry(ctx, progress, registryConfig, localEngine, portConflictMessages); err != nil {
+				return err
+			}
+
+			closeRegistryTunnel, err := OpenRegistrySSHTunnel(ctx, progress, options.TargetHost, registryConfig)
+			if err != nil {
+				return err
+			}
+			transferErr := TransferImagesViaRegistry(
+				ctx,
+				progress,
+				scope,
+				registryConfig.Port,
+				localEngine,
+				targetEngine,
+			)
+			if err := errors.Join(transferErr, closeRegistryTunnel(progress)); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := StartServices(ctx, progress, scope, options.RecreateMode, targetEngine); err != nil {
+		return err
+	}
+
+	if clean != nil {
+		if err := clean(); err != nil {
+			return err
+		}
+	}
+
+	if err := progress.Header("Deployment Success"); err != nil {
+		return err
+	}
+	return post_deploy.PrintDeploySuccess(
+		output,
+		scope,
+		options.DefaultSuccessMessage,
+	)
+}
+
+func Stop(
+	ctx context.Context,
+	output io.Writer,
+	scope project.Scope,
+	target ssh.Destination,
+	engine EngineKind,
+) (stopErr error) {
+	if engine != EngineDocker && engine != EnginePodman {
+		return fmt.Errorf("invalid engine %q: must be docker or podman", engine)
+	}
+	progress := term.NewProgress(output)
+
+	if engine == EngineDocker {
+		targetEngine := docker.Engine{Host: docker.NewHostFromDestination(target)}
+		return StopServices(ctx, progress, scope, targetEngine)
+	}
+
+	socket := podman.LocalSocket
+	if !target.IsPlainLocalhost() {
+		remoteSocket, closeTunnel, err := openPodmanSocketTunnel(ctx, progress, target)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			stopErr = errors.Join(stopErr, closeTunnel())
+		}()
+		socket = remoteSocket
+	}
+
+	targetEngine := podman.Engine{Socket: socket}
+	return StopServices(ctx, progress, scope, targetEngine)
+}
+
+func openPodmanSocketTunnel(
+	ctx context.Context,
+	progress *term.Progress,
+	target ssh.Destination,
+) (podman.Socket, func() error, error) {
+	if err := progress.Header("Open Podman socket SSH tunnel"); err != nil {
+		return podman.Socket{}, nil, err
+	}
+	tunnel, err := podman.TunnelRemoteSocketPath(ctx, progress.Output(), target)
+	if err != nil {
+		return podman.Socket{}, nil, err
+	}
+	closeTunnel := func() error {
+		if err := tunnel.Close(); err != nil {
+			return fmt.Errorf("failed to close remote Podman socket tunnel: %w", err)
+		}
+		return nil
+	}
+	return podman.NewSocket(tunnel.SocketURL()), closeTunnel, nil
+}
 
 func PrepareImages(ctx context.Context, progress *term.Progress, scope project.Scope, runner ComposeCommandRunner) error {
 	if err := BuildImages(ctx, progress, scope, runner); err != nil {
@@ -24,7 +176,7 @@ func PrepareImages(ctx context.Context, progress *term.Progress, scope project.S
 	return PullImages(ctx, progress, scope, runner)
 }
 
-type EngineExecutor interface {
+type CommandRunner interface {
 	Command(ctx context.Context, args ...string) *exec.Cmd
 	RunCommand(ctx context.Context, output io.Writer, args ...string) error
 }
@@ -33,8 +185,8 @@ func TransferImagesViaPipe(
 	ctx context.Context,
 	progress *term.Progress,
 	scope project.Scope,
-	sourceEx EngineExecutor,
-	targetEx EngineExecutor,
+	sourceEx CommandRunner,
+	targetEx CommandRunner,
 ) error {
 	if err := progress.Header("Transfer images"); err != nil {
 		return err
@@ -57,8 +209,8 @@ func TransferImagesViaPipe(
 func transferImageViaPipe(
 	ctx context.Context,
 	output io.Writer,
-	sourceEx EngineExecutor,
-	targetEx EngineExecutor,
+	sourceEx CommandRunner,
+	targetEx CommandRunner,
 	image string,
 ) error {
 	pipeReader, pipeWriter := io.Pipe()
@@ -94,8 +246,8 @@ func PrepareRegistry(
 	ctx context.Context,
 	progress *term.Progress,
 	config RegistryConfig,
-	ex EngineExecutor,
-	knownErrors []string,
+	ex CommandRunner,
+	portConflictMessages []string,
 ) error {
 	if err := progress.Header("Run registry"); err != nil {
 		return err
@@ -126,15 +278,15 @@ func PrepareRegistry(
 		return nil
 	}
 	commandErrorOutput := strings.ToLower(commandOutput.String())
-	for _, knownError := range knownErrors {
-		if strings.Contains(commandErrorOutput, knownError) {
+	for _, portConflictMessage := range portConflictMessages {
+		if strings.Contains(commandErrorOutput, portConflictMessage) {
 			return fmt.Errorf("%w\nport is already in use, this could be an existing %s or another process", err, config.ContainerName)
 		}
 	}
 	return err
 }
 
-func validateRegistryPort(ctx context.Context, ex EngineExecutor, containerName, requestedPort string) error {
+func validateRegistryPort(ctx context.Context, ex CommandRunner, containerName, requestedPort string) error {
 	cmd := ex.Command(ctx, "inspect", containerName)
 	output, err := cmd.Output()
 	if err != nil {
@@ -231,7 +383,7 @@ func closeTunnel(progress *term.Progress, tunnel *ssh.Tunnel) error {
 	return errors.Join(headerError, closeError)
 }
 
-type RegistryEngineExecutor interface {
+type RegistryClient interface {
 	TagImage(ctx context.Context, output io.Writer, image, tag string) error
 	PushImage(ctx context.Context, output io.Writer, image string) (digest string, err error)
 	PullImage(ctx context.Context, output io.Writer, digest string) error
@@ -242,8 +394,8 @@ func TransferImagesViaRegistry(
 	progress *term.Progress,
 	scope project.Scope,
 	localRegistryPort string,
-	sourceEx RegistryEngineExecutor,
-	targetEx RegistryEngineExecutor,
+	sourceEx RegistryClient,
+	targetEx RegistryClient,
 ) error {
 	if err := progress.Header("Transfer via registry"); err != nil {
 		return err
