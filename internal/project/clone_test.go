@@ -102,7 +102,7 @@ x-topo:
 
 		err := project.Clone(t.Output(), destDir, mockSource, parameter.NewStrictResolverChain(), false)
 
-		require.ErrorContains(t, err, "missing value(s) for required parameters")
+		require.ErrorContains(t, err, "parameter validation failed")
 		_, statErr := os.Stat(destDir)
 		assert.True(t, os.IsNotExist(statErr))
 	})
@@ -139,7 +139,7 @@ x-topo:
     GREETING: {}
 `,
 		})
-		resolver := parameter.NewStaticResolver(parameter.Values{"GREETING": "configured"})
+		resolver := parameter.NewStaticResolver(parameter.Changes{"GREETING": new("configured")})
 		var output bytes.Buffer
 
 		err := project.Clone(&output, destDir, source, parameter.NewStrictResolverChain(resolver), true)
@@ -180,8 +180,8 @@ x-topo:
 `,
 		})
 
-		err := project.Clone(t.Output(), destDir, mockSource, parameter.NewStaticResolver(parameter.Values{
-			"GREETING": "a-value",
+		err := project.Clone(t.Output(), destDir, mockSource, parameter.NewStaticResolver(parameter.Changes{
+			"GREETING": new("a-value"),
 		}), false)
 
 		require.NoError(t, err)

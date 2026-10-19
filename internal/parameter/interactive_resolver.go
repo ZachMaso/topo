@@ -9,7 +9,7 @@ import (
 	"github.com/arm/topo/internal/output/term"
 )
 
-// InteractiveResolver resolves parameter definitions to values by prompting via stdin/stdout.
+// InteractiveResolver resolves parameter definitions to changes by prompting via stdin/stdout.
 type InteractiveResolver struct {
 	input  io.Reader
 	output io.Writer
@@ -19,17 +19,16 @@ func NewInteractiveResolver(in io.Reader, out io.Writer) *InteractiveResolver {
 	return &InteractiveResolver{input: in, output: out}
 }
 
-func (r *InteractiveResolver) Resolve(parameters []Parameter) (Values, error) {
-	values := Values{}
+func (r *InteractiveResolver) Resolve(parameters []Parameter) (Changes, error) {
+	changes := Changes{}
 	if len(parameters) == 0 {
-		return values, nil
+		return changes, nil
 	}
 	scanner := bufio.NewScanner(r.input)
 	palette := term.NewPaletteFor(r.output)
 
 	for i, parameter := range parameters {
-		needsValue := parameter.needsValue()
-		prompt := fmt.Sprintf("%s\n", formatParameterPrompt(parameter, needsValue, i+1, len(parameters), palette))
+		prompt := fmt.Sprintf("%s\n", formatParameterPrompt(parameter, i+1, len(parameters), palette))
 		if _, err := fmt.Fprint(r.output, prompt); err != nil {
 			return nil, err
 		}
@@ -42,14 +41,14 @@ func (r *InteractiveResolver) Resolve(parameters []Parameter) (Values, error) {
 				if err := scanner.Err(); err != nil {
 					return nil, err
 				}
-				return values, nil
+				return changes, nil
 			}
 			value := strings.TrimSpace(scanner.Text())
 			if value != "" {
-				values[parameter.Name] = value
+				changes[parameter.Name] = new(value)
 				break
 			}
-			if !needsValue {
+			if err := parameter.AssertSatisfiedBy(parameter.ExistingValue); err == nil {
 				break
 			}
 			if _, err := fmt.Fprintf(r.output, "%s A value is required.\n", palette.Color(term.Red, "✗")); err != nil {
@@ -60,10 +59,10 @@ func (r *InteractiveResolver) Resolve(parameters []Parameter) (Values, error) {
 			return nil, err
 		}
 	}
-	return values, nil
+	return changes, nil
 }
 
-func formatParameterPrompt(parameter Parameter, needsValue bool, number, total int, palette term.Palette) string {
+func formatParameterPrompt(parameter Parameter, number, total int, palette term.Palette) string {
 	progress := palette.Color(term.Dim, fmt.Sprintf("%d/%d", number, total))
 	lines := []string{fmt.Sprintf("%s %s", progress, parameter.Name), ""}
 	if description := strings.TrimSpace(parameter.Description); description != "" {
@@ -88,10 +87,13 @@ func formatParameterPrompt(parameter Parameter, needsValue bool, number, total i
 		lines = append(lines, metadata...)
 		lines = append(lines, "")
 	}
-	if parameter.ExistingValue != nil {
-		lines = append(lines, fmt.Sprintf("%s Leave empty to keep the current value.", palette.Color(term.Blue, "i")))
-	} else if !needsValue {
-		lines = append(lines, fmt.Sprintf("%s Leave empty to skip.", palette.Color(term.Blue, "i")))
+	if err := parameter.AssertSatisfiedBy(parameter.ExistingValue); err == nil {
+		infoIcon := palette.Color(term.Blue, "i")
+		if parameter.ExistingValue != nil {
+			lines = append(lines, fmt.Sprintf("%s Leave empty to keep the current value.", infoIcon))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s Leave empty to skip.", infoIcon))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

@@ -10,8 +10,6 @@ import (
 
 	cmdtext "github.com/arm/topo/internal/command"
 	"github.com/arm/topo/internal/deploy"
-	"github.com/arm/topo/internal/deploy/docker"
-	"github.com/arm/topo/internal/deploy/podman"
 	checks "github.com/arm/topo/internal/deploy/project_checks"
 	"github.com/arm/topo/internal/env"
 	"github.com/arm/topo/internal/output/logger"
@@ -88,6 +86,7 @@ By default, Topo uses compose.yaml in the current working directory, then compos
 		)
 
 		options := deploy.Options{
+			Engine:                deploy.EngineKind(engine.value),
 			TargetHost:            ssh.NewDestination(target.value),
 			DefaultSuccessMessage: defaultSuccessMessage,
 		}
@@ -107,12 +106,7 @@ By default, Topo uses compose.yaml in the current working directory, then compos
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		var deploymentErr error
-		if engine.value == containerEnginePodman {
-			deploymentErr = podman.Deploy(ctx, os.Stdout, scope, options)
-		} else {
-			deploymentErr = docker.Deploy(ctx, os.Stdout, scope, options)
-		}
+		deploymentErr := deploy.Deploy(ctx, os.Stdout, scope, options)
 		if deploymentErr == nil {
 			return nil
 		}
@@ -205,7 +199,7 @@ func init() {
 	addComposeFileFlag(deployCmd)
 	addEnvFileFlag(deployCmd)
 	addEngineFlag(deployCmd)
-	deployCmd.Flags().StringVarP(&registryPort, "registry-port", "p", docker.DefaultRegistryPort, fmt.Sprintf("registry and SSH tunnel port (can also be set via %s env var)", portEnvVar))
+	deployCmd.Flags().StringVarP(&registryPort, "registry-port", "p", deploy.DefaultRegistryPort, fmt.Sprintf("registry and SSH tunnel port (can also be set via %s env var)", portEnvVar))
 	deployCmd.Flags().BoolVar(&noRegistry, "no-registry", false, "use full-image save/load transfer instead of delta-optimised registry transfer; for environments where registry transfer or reverse SSH forwarding is unavailable")
 	deployCmd.Flags().BoolVar(&skipRemotePortCheck, "skip-remote-port-check", false, fmt.Sprintf("skip checking whether the SSH tunnel port is exposed on the remote network (can also be set via %s env var)", skipRemotePortCheckEnvVar))
 	deployCmd.Flags().BoolVar(&forceRecreate, "force-recreate", false, "force recreation of containers even if their configuration and image haven't changed")

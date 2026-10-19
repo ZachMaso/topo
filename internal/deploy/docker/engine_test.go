@@ -1,40 +1,12 @@
 package docker_test
 
 import (
-	"context"
-	"os"
 	"testing"
 
 	"github.com/arm/topo/internal/deploy/docker"
-	"github.com/arm/topo/internal/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestTransferImagesViaRegistry(t *testing.T) {
-	requireLinuxDockerEngine(t)
-	host := docker.LocalHost
-	const registryContainerName = "topo-test-registry"
-	scope, imageName := buildTransferTestImage(t, host)
-
-	registryPort := startTestRegistry(t, registryContainerName)
-
-	destinationContainer := startContainer(t, dinDContainer)
-	destination := ssh.NewDestination(destinationContainer.SSHDestination)
-	destinationHost := docker.NewHostFromDestination(destination)
-	requireImageDoesNotExist(t, destinationHost, imageName)
-
-	tunnel, err := ssh.OpenTunnel(context.Background(), os.Stdout, destination, registryPort)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, tunnel.Close(context.Background(), os.Stdout))
-	})
-
-	err = docker.TransferImagesViaRegistry(t.Context(), os.Stdout, host, destinationHost, scope, registryPort)
-
-	require.NoError(t, err)
-	requireImageExists(t, destinationHost, imageName)
-}
 
 func TestParseDigestFromPushOutput(t *testing.T) {
 	t.Run("parses digest from typical push output", func(t *testing.T) {
